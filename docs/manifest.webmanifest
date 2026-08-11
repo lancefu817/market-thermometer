@@ -1,0 +1,13 @@
+{
+  "name": "市場溫度計 — Market Thermometer",
+  "short_name": "市場溫度計",
+  "description": "VIX · VVIX · Put/Call Ratio · ADL 綜合評分，對應 0050 定期定額扣款倍率。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#080e19",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

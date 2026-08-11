@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>市場溫度計 — Market Thermometer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="VIX · VVIX · Put/Call Ratio · ADL 綜合評分，對應 0050 定期定額扣款倍率。">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="favicon.svg">
+<style>
+/* ─────────────────────────── 設計代號 ───────────────────────────
+   兩條資料序列的顏色已通過 dataviz 調色盤驗證器（dark 模式，
+   surface #0b1220）：亮度落在 L 0.48–0.67 帶內、彩度達標、
+   色盲模擬下相鄰對 ΔE ≥ 15、對比 ≥ 3:1。要換色請重新驗證。   */
+:root{
+  --surface:#0b1220;          /* 圖表底色 */
+  --bg:#080e19;
+  --panel:#111c2e;
+  --panel-2:#16233a;
+  --line:#233450;
+  --ink:#e8eefc;
+  --ink-2:#a7b6d4;
+  --ink-3:#6f80a2;
+
+  --series-score:#0aa89a;     /* 綜合分數 */
+  --series-price:#e2700f;     /* 0050 收盤價 */
+
+  --good:#10b981;
+  --warning:#eab308;
+  --serious:#f97316;
+  --critical:#ef4444;
+
+  --hot:#ef4444;              /* 高檔過熱 */
+  --normal:#0aa89a;           /* 標準累積 */
+  --cool:#eab308;             /* 相對低檔 */
+  --cold:#6366f1;             /* 恐慌超跌 */
+
+  --radius:14px;
+  --pad:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 520px at 78% -8%, #10352f 0%, rgba(16,53,47,0) 62%),
+    var(--bg);
+  color:var(--ink);
+  font-family:"Inter","Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  font-size:15px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  padding:0 0 56px;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+a{color:var(--series-score)}
+
+/* ── 頁首 ── */
+header.top{padding:34px 0 22px}
+.top-grid{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;justify-content:space-between}
+h1{margin:0;font-size:30px;letter-spacing:.06em;font-weight:700}
+.sub{margin:4px 0 0;color:var(--ink-2);font-size:13px;letter-spacing:.08em}
+.stat-lines{font-size:12px;color:var(--ink-2);text-align:right;line-height:1.85;min-width:260px}
+.stat-lines b{color:var(--ink);font-weight:600}
+.chip-ok{color:var(--good)}
+.chip-warn{color:var(--warning)}
+.tz{color:var(--ink-3);font-size:11px;margin-top:2px}
+
+/* ── 卡片 ── */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:var(--pad)}
+.card h2{margin:0 0 14px;font-size:16px;font-weight:700;letter-spacing:.04em}
+.card h2 .hint{float:right;font-size:11px;font-weight:500;color:var(--ink-3);letter-spacing:.02em}
+section{margin:0 0 18px}
+.grid{display:grid;gap:16px}
+.g-hero{grid-template-columns:minmax(0,1.02fr) minmax(0,1fr)}
+.g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+
+/* ── 溫度計 ── */
+.g-hero > .card{display:flex;flex-direction:column;justify-content:center}
+.thermo-row{display:flex;gap:22px;align-items:stretch}
+.thermo{flex:0 0 86px;display:flex;align-items:center;justify-content:center}
+.score-box{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center}
+.advice{display:flex;flex-direction:column;justify-content:center}
+.score-label{font-size:10px;letter-spacing:.24em;color:var(--ink-3);text-transform:uppercase}
+.score-num{font-size:58px;font-weight:800;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.score-regime{font-size:19px;font-weight:700;margin-top:6px}
+.score-delta{font-size:12px;color:var(--ink-2);margin-top:6px;font-variant-numeric:tabular-nums}
+.advice{flex:1 1 46%;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:16px}
+.advice-top{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);letter-spacing:.06em}
+.advice h3{margin:10px 0 4px;font-size:19px}
+.advice .dca{font-size:12px;color:var(--ink-2)}
+.advice .dca b{font-size:24px;color:var(--ink);font-weight:800;margin-left:6px;font-variant-numeric:tabular-nums}
+.advice p{margin:10px 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.75}
+
+/* ── 狀態判定 ── */
+.regime-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.regime{border:1px solid var(--line);border-radius:12px;padding:12px 13px;background:#0e1829;position:relative}
+.regime.on{box-shadow:inset 0 0 0 1px currentColor}
+.regime .rt{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:6px}
+.regime .rm{font-size:10.5px;color:var(--ink-3);float:right;font-variant-numeric:tabular-nums}
+.regime p{margin:7px 0 0;font-size:11.5px;color:var(--ink-2);line-height:1.7}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:0 0 8px}
+
+/* ── 指標卡 ── */
+.ind .ih{display:flex;justify-content:space-between;align-items:baseline}
+.ind .name{font-size:15px;font-weight:700}
+.ind .w{font-size:10.5px;color:var(--ink-3)}
+.ind .desc{font-size:11px;color:var(--ink-3);margin-top:1px}
+.ind .val{font-size:33px;font-weight:800;margin-top:12px;line-height:1.1;font-variant-numeric:tabular-nums}
+.ind .val small{font-size:14px;font-weight:600;color:var(--ink-2);margin-left:3px}
+.ind .val.text{font-size:24px}
+.ind .delta{font-size:11.5px;color:var(--ink-2);margin-top:4px;font-variant-numeric:tabular-nums}
+.ind .barrow{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);margin-top:16px}
+.ind .barrow b{color:var(--ink);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:99px;background:#1b2942;margin-top:6px;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:99px;background:var(--series-score)}
+.ind .note{font-size:10.5px;color:var(--ink-3);margin-top:12px;line-height:1.65}
+.up{color:var(--critical)}   /* 台股慣例：紅漲綠跌 */
+.down{color:var(--good)}
+.flat{color:var(--ink-3)}
+.warn{color:var(--warning)}
+.crit{color:var(--critical);font-weight:800}
+.muted{color:var(--ink-3)}
+/* 指標卡的一句話白話解讀 */
+.ind .say{margin-top:12px;font-size:11.5px;color:var(--ink-2);line-height:1.6;
+  border-left:2px solid var(--ink-3);padding-left:9px}
+/* 強訊號標籤：不只靠顏色，一定帶文字 */
+.strong-tag{font-size:9.5px;font-weight:700;color:var(--critical);
+  border:1px solid var(--critical);border-radius:5px;padding:0 4px;margin-left:2px}
+.nightgap{border-left:1px solid var(--line);padding-left:12px}
+.ai p.lead{color:var(--ink);font-weight:600;font-size:12.5px}
+/* 總經事件清單 */
+ul.events{list-style:none;margin:0;padding:0}
+ul.events li{display:flex;gap:10px;align-items:center;padding:8px 2px;
+  border-bottom:1px solid var(--line);font-size:12.5px}
+ul.events li:last-child{border-bottom:0}
+.ev-tag{font-size:10px;font-weight:700;border:1px solid currentColor;border-radius:5px;
+  padding:1px 6px;flex:0 0 auto;min-width:54px;text-align:center}
+.ev-name{flex:1 1 auto;color:var(--ink)}
+.ev-when{color:var(--ink-2);font-variant-numeric:tabular-nums}
+.ev-in{color:var(--ink-3);font-variant-numeric:tabular-nums;min-width:64px;text-align:right}
+[title]{cursor:help}
+.taiex-strip [title],.checks li[title],.momentum[title]{cursor:help}
+
+/* ── 融資警戒 ── */
+.mg-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.mg-meta{font-size:10.5px;color:var(--ink-3)}
+.taiex-strip{display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:#0e1829;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:12px 0 16px;font-size:12px;color:var(--ink-2)}
+.taiex-strip b{color:var(--ink)}
+.mg-grid{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.05fr) minmax(0,1.6fr);gap:18px}
+.big{font-size:34px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.big small{font-size:13px;color:var(--ink-2);font-weight:600;margin-left:4px}
+.kv{font-size:10.5px;color:var(--ink-3);letter-spacing:.04em}
+.risk-pill{display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:9px 13px;font-weight:700;font-size:14px;border:1px solid currentColor;background:#0e1829}
+.checks{list-style:none;margin:12px 0 0;padding:0;font-size:11.5px;color:var(--ink-2)}
+.checks li{display:flex;gap:7px;align-items:baseline;margin-bottom:7px}
+.checks .cv{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.checks .ct{color:var(--ink-3);font-size:10.5px}
+.momentum{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:#0e1829;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:16px;font-size:12px;color:var(--ink-2)}
+.momentum b{color:var(--ink)}
+.ai{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.ai .who{font-size:11px;color:var(--ink-3);letter-spacing:.06em;margin-bottom:6px}
+.ai p{margin:0 0 8px;font-size:12.5px;color:var(--ink-2);line-height:1.8}
+.method{font-size:10.5px;color:var(--ink-3);line-height:1.7;margin-top:10px}
+
+/* ── 圖表 ── */
+.range{display:flex;gap:4px;background:#0e1829;border:1px solid var(--line);border-radius:9px;padding:3px}
+.range button{appearance:none;background:none;border:0;color:var(--ink-2);font:inherit;font-size:11.5px;padding:4px 11px;border-radius:6px;cursor:pointer}
+.range button[aria-pressed="true"]{background:var(--panel-2);color:var(--ink);font-weight:700}
+.chart-wrap{position:relative;margin-top:6px}
+.legend{display:flex;gap:16px;font-size:11.5px;color:var(--ink-2);margin:2px 0 4px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+svg.chart{display:block;width:100%;height:auto;overflow:visible;touch-action:pan-y}
+.tip{position:absolute;pointer-events:none;background:#0a1220f2;border:1px solid var(--line);border-radius:9px;padding:8px 11px;font-size:11.5px;color:var(--ink);white-space:nowrap;opacity:0;transition:opacity .12s;z-index:5;box-shadow:0 8px 24px #0008}
+.tip b{font-variant-numeric:tabular-nums}
+.tip .r{color:var(--ink-3)}
+details.table-view{margin-top:14px}
+details.table-view summary{cursor:pointer;font-size:11.5px;color:var(--ink-2)}
+table{border-collapse:collapse;width:100%;margin-top:10px;font-size:11.5px;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--ink-3);font-weight:600}
+.tbl-scroll{max-height:280px;overflow:auto}
+
+footer{text-align:center;color:var(--ink-3);font-size:11.5px;margin-top:28px;line-height:1.9}
+.err{background:#2a1420;border:1px solid #7f1d3a;color:#fecdd8;border-radius:12px;padding:14px 16px;font-size:13px}
+.skeleton{color:var(--ink-3);font-size:13px;padding:40px 0;text-align:center}
+
+@media (max-width:960px){
+  .g-hero,.g-4,.g-2{grid-template-columns:1fr}
+  .mg-grid{grid-template-columns:1fr}
+  .thermo-row{flex-direction:column}
+  .advice{flex:1 1 auto}
+  h1{font-size:25px}
+  .stat-lines{text-align:left;min-width:0}
+  .score-num{font-size:50px}
+}
+@media (max-width:620px){
+  .regime-grid{grid-template-columns:1fr}
+  .g-4{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="top-grid">
+      <div>
+        <h1>市場溫度計</h1>
+        <p class="sub">VIX · VVIX · Put/Call Ratio · ADL 綜合評分</p>
+      </div>
+      <div class="stat-lines" id="statusBox"></div>
+    </div>
+  </header>
+  <div id="app"><div class="skeleton">載入資料中…</div></div>
+  <footer>
+    <div>資料來源：Yahoo Finance · 台灣期貨交易所 · 台灣證券交易所</div>
+    <div>本儀表板僅供策略參考，不構成投資建議。</div>
+    <div id="buildLine"></div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════
+   市場溫度計 前端
+   資料來自同目錄下的 data/*.json，由 GitHub Actions 每日產生。
+   沒有任何外部相依，離線打開也能顯示（只是資料是最後一次更新的）。
+   ══════════════════════════════════════════════════════════════════ */
+
+const C = {
+  score: '#0aa89a',
+  price: '#e2700f',
+  good: '#10b981', warning: '#eab308', serious: '#f97316', critical: '#ef4444',
+  ink: '#e8eefc', ink2: '#a7b6d4', ink3: '#6f80a2', line: '#233450',
+};
+const TONE = {           // 四段市場狀態的溫度色（熱→冷）
+  overheat: C.critical, bullish: C.score, neutral: C.warning, panic: '#6366f1',
+};
+const REGIME_ICON = { overheat: '🔥', standard: '🌱', dip: '🍂', panic: '❄️' };
+const RISK_COLOR = { good: C.good, warning: C.warning, serious: C.serious, critical: C.critical };
+const RISK_ICON  = { good: '✓', warning: '!', serious: '▲', critical: '■' };
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = (v, d = 2) => (v == null || Number.isNaN(v) ? '—'
+  : Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const int = (v) => (v == null ? '—' : Math.round(v).toLocaleString('en-US'));
+
+/* 台股慣例：漲用紅、跌用綠 */
+function deltaHTML(v, digits = 2, suffix = '') {
+  if (v == null) return '<span class="flat">vs 昨日 — 無資料</span>';
+  if (Math.abs(v) < 1e-9) return '<span class="flat">vs 昨日 — 持平</span>';
+  const cls = v > 0 ? 'up' : 'down';
+  const arrow = v > 0 ? '↑' : '↓';
+  return `vs 昨日 <span class="${cls}">${arrow} ${num(Math.abs(v), digits)}${suffix}</span>`;
+}
+
+/* ─────────────────────────── SVG 折線圖 ───────────────────────────
+   刻意手寫、不用任何圖表套件：整份專案零外部相依，離線可用。
+   兩張圖各自一條序列（不做雙軸），共用同一組 x，游標連動。      */
+const NS = 'http://www.w3.org/2000/svg';
+function el(name, attrs, parent) {
+  const node = document.createElementNS(NS, name);
+  for (const k in attrs) node.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function drawLine(svg, opts) {
+  const { data, accessor, color, label, bands, unit, decimals } = opts;
+  const W = opts.width || 1000, H = opts.height || 210;
+  /* 有事件標籤時把上緣留高一點，兩行標籤才不會頂到圖例 */
+  const M = { t: opts.eventLabels ? 30 : 14, r: W < 700 ? 52 : 46, b: 22, l: 6 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', label);
+  svg.textContent = '';
+
+  const values = data.map(accessor).filter((v) => v != null);
+  if (!values.length) return null;
+  let lo = Math.min(...values), hi = Math.max(...values);
+  if (opts.domain) { lo = opts.domain[0]; hi = opts.domain[1]; }
+  else { const pad = (hi - lo || 1) * 0.14; lo -= pad; hi += pad; }
+
+  const px = (i) => M.l + (i / Math.max(data.length - 1, 1)) * (W - M.l - M.r);
+  const py = (v) => M.t + (1 - (v - lo) / (hi - lo || 1)) * (H - M.t - M.b);
+
+  /* 狀態區間色塊（僅分數圖用），先畫，最遠離視覺焦點 */
+  (bands || []).forEach((b) => {
+    const y1 = py(Math.min(b.to, hi)), y2 = py(Math.max(b.from, lo));
+    if (y2 <= y1) return;
+    el('rect', { x: M.l, y: y1, width: W - M.l - M.r, height: y2 - y1,
+      fill: b.color, opacity: b.opacity || 0.07 }, svg);
+  });
+
+  /* 座標：刻意壓低視覺權重 */
+  const ticks = opts.ticks || 4;
+  for (let k = 0; k <= ticks; k++) {
+    const v = lo + (hi - lo) * (k / ticks);
+    const y = py(v);
+    el('line', { x1: M.l, x2: W - M.r, y1: y, y2: y,
+      stroke: C.line, 'stroke-width': 1, opacity: 0.55 }, svg);
+    const t = el('text', { x: W - M.r + 7, y: y + 4, fill: C.ink3,
+      'font-size': 11, 'font-family': 'inherit' }, svg);
+    t.textContent = opts.tickFormat ? opts.tickFormat(v) : Math.round(v);
+  }
+
+  /* 資料線：2px，缺值斷開 */
+  let d = '', pen = false;
+  data.forEach((row, i) => {
+    const v = accessor(row);
+    if (v == null) { pen = false; return; }
+    d += (pen ? 'L' : 'M') + px(i).toFixed(1) + ' ' + py(v).toFixed(1) + ' ';
+    pen = true;
+  });
+  el('path', { d, fill: 'none', stroke: color, 'stroke-width': 2,
+    'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+
+  /* 總經事件標記：在對應日期畫一條細虛線，hover 顯示事件名稱 */
+  if (opts.events && opts.events.length) {
+    const index = new Map(data.map((row, i) => [row.date, i]));
+    const styles = opts.eventStyles || {};
+    const placed = [];   // 記住已放過標籤的 x，太近就換到第二行避免疊字
+    opts.events.forEach((ev) => {
+      const i = index.get(ev.date);
+      if (i == null) return;
+      const st = styles[ev.category] || { color: C.ink3, label: ev.category };
+      el('line', { x1: px(i), x2: px(i), y1: M.t, y2: H - M.b, stroke: st.color,
+        'stroke-width': 1, 'stroke-dasharray': '2 4', opacity: 0.55 }, svg);
+      const hit = el('line', { x1: px(i), x2: px(i), y1: M.t, y2: H - M.b,
+        stroke: 'transparent', 'stroke-width': 10, 'pointer-events': 'stroke' }, svg);
+      el('title', {}, hit).textContent = `${ev.date}　${ev.name}`;
+      if (opts.eventLabels) {
+        const x = px(i);
+        const clash = placed.some((p) => Math.abs(p.x - x) < 42 && p.row === 0);
+        const row = clash ? 1 : 0;
+        placed.push({ x, row });
+        const t = el('text', { x, y: M.t - 3 - row * 11, fill: st.color, 'font-size': 9,
+          'text-anchor': 'middle', 'font-family': 'inherit' }, svg);
+        t.textContent = st.label;
+      }
+    });
+  }
+
+  /* 只直接標最後一點，不是每點都標數字 */
+  for (let i = data.length - 1; i >= 0; i--) {
+    const v = accessor(data[i]);
+    if (v == null) continue;
+    el('circle', { cx: px(i), cy: py(v), r: 4.5, fill: color,
+      stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+    break;
+  }
+
+  /* x 軸日期標籤（自動抽稀，並確保不會和最後一個標籤重疊） */
+  const step = Math.max(1, Math.ceil(data.length / (opts.narrow ? 6 : 11)));
+  const minGap = (W - M.l - M.r) / (opts.narrow ? 7 : 13);
+  const last = data.length - 1;
+  data.forEach((row, i) => {
+    if (i !== last && (i % step || px(last) - px(i) < minGap)) return;
+    const t = el('text', { x: px(i), y: H - 6, fill: C.ink3, 'font-size': 10.5,
+      'text-anchor': i === last ? 'end' : i === 0 ? 'start' : 'middle',
+      'font-family': 'inherit' }, svg);
+    t.textContent = row.date.slice(5);
+  });
+
+  const cursor = el('line', { x1: 0, x2: 0, y1: M.t, y2: H - M.b,
+    stroke: C.ink2, 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0 }, svg);
+  const marker = el('circle', { r: 5, fill: color, stroke: '#0b1220',
+    'stroke-width': 2, opacity: 0 }, svg);
+
+  /* 透明命中區：<svg> 根元素本身沒有填色，滑鼠事件不會觸發，
+     所以蓋一層看不見但可命中的矩形，讓整張圖都能接到 mousemove。 */
+  el('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent',
+    'pointer-events': 'all' }, svg);
+
+  return {
+    W, H, M, px, py, accessor, unit, decimals, color, label,
+    highlight(i) {
+      const v = accessor(data[i]);
+      cursor.setAttribute('x1', px(i)); cursor.setAttribute('x2', px(i));
+      cursor.setAttribute('opacity', 0.7);
+      if (v == null) { marker.setAttribute('opacity', 0); return null; }
+      marker.setAttribute('cx', px(i)); marker.setAttribute('cy', py(v));
+      marker.setAttribute('opacity', 1);
+      return v;
+    },
+    clear() { cursor.setAttribute('opacity', 0); marker.setAttribute('opacity', 0); },
+  };
+}
+
+/* 融資餘額趨勢小圖（含 P75/P25 參考線） */
+function drawMarginTrend(svg, trend, p75, p25, pctLabel, tips) {
+  const tip = (node, text) => {
+    if (!text) return;
+    el('title', {}, node).textContent = text;
+  };
+  const W = 640, H = 136, M = { t: 12, r: 118, b: 18, l: 6 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `近 ${trend.length} 個交易日融資餘額趨勢`);
+  svg.textContent = '';
+  const vals = trend.map((t) => t.balance_e);
+  const all = vals.concat([p75, p25].filter((v) => v != null));
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = (hi - lo || 1) * 0.18; lo -= pad; hi += pad;
+  const px = (i) => M.l + (i / Math.max(trend.length - 1, 1)) * (W - M.l - M.r);
+  const py = (v) => M.t + (1 - (v - lo) / (hi - lo || 1)) * (H - M.t - M.b);
+
+  [[p75, 'P75', tips?.p75_tip], [p25, 'P25', tips?.p25_tip]].forEach(([v, name, note]) => {
+    if (v == null) return;
+    /* 加粗一條看不見的命中線，讓細虛線也容易 hover 到 */
+    const hit = el('line', { x1: M.l, x2: W - M.r, y1: py(v), y2: py(v),
+      stroke: 'transparent', 'stroke-width': 12, 'pointer-events': 'stroke' }, svg);
+    tip(hit, note);
+    el('line', { x1: M.l, x2: W - M.r, y1: py(v), y2: py(v), stroke: C.ink3,
+      'stroke-width': 1, 'stroke-dasharray': '4 4', opacity: 0.75 }, svg);
+    const t = el('text', { x: W - M.r + 6, y: py(v) + 4, fill: C.ink3,
+      'font-size': 10.5, 'font-family': 'inherit' }, svg);
+    t.textContent = `${name} ${int(v)}`;
+    tip(t, note);
+  });
+
+  let d = '';
+  trend.forEach((row, i) => {
+    d += (i ? 'L' : 'M') + px(i).toFixed(1) + ' ' + py(row.balance_e).toFixed(1) + ' ';
+  });
+  el('path', { d, fill: 'none', stroke: '#38bdf8', 'stroke-width': 2,
+    'stroke-linejoin': 'round' }, svg);
+  const last = trend.length - 1;
+  const dot = el('circle', { cx: px(last), cy: py(trend[last].balance_e), r: 5.5,
+    fill: '#38bdf8', stroke: '#0b1220', 'stroke-width': 2 }, svg);
+  tip(dot, tips?.today_tip);
+  const lab = el('text', { x: W - M.r + 6, y: py(trend[last].balance_e) + 4,
+    fill: '#7dd3fc', 'font-size': 11, 'font-weight': 700, 'font-family': 'inherit' }, svg);
+  lab.textContent = `今日 ${pctLabel} (${int(trend[last].balance_e)})`;
+  tip(lab, tips?.today_tip);
+  [0, Math.floor(last / 2), last].forEach((i) => {
+    const t = el('text', { x: px(i), y: H - 4, fill: C.ink3, 'font-size': 10,
+      'text-anchor': i === 0 ? 'start' : i === last ? 'end' : 'middle',
+      'font-family': 'inherit' }, svg);
+    t.textContent = trend[i].date.slice(5);
+  });
+}
+
+/* 溫度計 */
+function thermoSVG(score, color) {
+  const H = 200, top = 14, bot = 150, x = 30;
+  const frac = Math.max(0, Math.min(1, (score == null ? 0 : score) / 100));
+  const y = bot - frac * (bot - top);
+  const ticks = [0, 20, 40, 60, 80, 100].map((v) => {
+    const ty = bot - (v / 100) * (bot - top);
+    return `<line x1="46" x2="52" y1="${ty}" y2="${ty}" stroke="${C.ink3}" stroke-width="1"/>
+            <text x="56" y="${ty + 3.5}" fill="${C.ink3}" font-size="9">${v}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 86 200" width="86" height="200" role="img"
+    aria-label="綜合分數 ${score == null ? '無資料' : score.toFixed(1)} 分溫度計">
+    <rect x="${x - 9}" y="${top - 6}" width="18" height="${bot - top + 12}" rx="9"
+      fill="#16233a" stroke="${C.line}"/>
+    <rect x="${x - 5}" y="${y}" width="10" height="${bot - y + 4}" rx="5" fill="${color}"/>
+    <circle cx="${x}" cy="${bot + 22}" r="17" fill="${color}" opacity="0.28"/>
+    <circle cx="${x}" cy="${bot + 22}" r="12" fill="${color}"/>
+    ${ticks}
+  </svg>`;
+}
+
+/* ─────────────────────────── 版面組裝 ─────────────────────────── */
+
+let STATUS = null;
+
+function renderStatus(status, latest) {
+  const box = $('#statusBox');
+  if (!status) { box.innerHTML = ''; return; }
+  STATUS = status;
+  const grace = status.schedule?.graceMinutes ?? 90;
+  const mark = (side) => side?.fresh
+    ? `<span class="chip-ok" title="抓取成功 @ ${esc(status.generatedAt || '')}">✓</span>`
+    : `<span class="chip-warn" title="當前時間已過今日預期排程時間 + ${grace} 分鐘 grace，`
+      + `但資料時間戳仍是舊的。可能是 cron 延遲、抓取失敗、或市場休市無新資料。`
+      + `預期資料日：${esc(side?.expected || '—')}">⚠ 今日尚未更新</span>`;
+  const runLink = status.runUrl
+    ? ` <a href="${esc(status.runUrl)}" target="_blank" rel="noopener"
+         title="點進 GitHub Actions 看這一次的執行紀錄">紀錄</a>` : '';
+
+  box.innerHTML = `
+    <div>美股資料：<b>${esc(status.us?.date || latest.updatedAtUS || '—')}</b> ${mark(status.us)}</div>
+    <div class="tz">下次更新倒數：<b id="cdUS">—</b>
+      <span class="muted">(${esc(fmtWhen(status.schedule?.us?.next))})</span></div>
+    <div>台股資料：<b>${esc(status.tw?.date || latest.updatedAtTW || '—')}</b> ${mark(status.tw)}</div>
+    <div class="tz">下次更新倒數：<b id="cdTW">—</b>
+      <span class="muted">(${esc(fmtWhen(status.schedule?.tw?.next))})</span></div>
+    <div class="tz" style="margin-top:4px">✓ 表示上次抓取成功；⚠ 表示今日預期排程尚未產生新資料。
+      可在 GitHub Actions 手動觸發。${runLink}</div>
+    <div class="tz">時區：台北 (UTC+8)　·　評分天數 ${status.counts?.scored_days ?? '—'}
+      ·　評論來源 ${status.commentary?.source === 'llm' ? 'AI' : '規則式'}</div>`;
+  $('#buildLine').textContent =
+    `v${status.version || '—'} · 資料產生於 ${(status.generatedAt || '').replace('T', ' ')}`;
+  startCountdowns();
+}
+
+/* 一律用台北時間顯示，不跟隨瀏覽器所在時區——
+   否則人在美國看，FOMC 會顯示成美東時間，跟頁面上寫的「時區：台北」自相矛盾。 */
+const TPE_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+});
+function fmtWhen(iso) {
+  if (!iso) return '—';
+  const parts = TPE_FMT.formatToParts(new Date(iso));
+  const get = (type) => (parts.find((p) => p.type === type) || {}).value || '00';
+  return `${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+/* 下次更新倒數：每秒重算，跨過排程時間就顯示「已到期，等待資料」 */
+let countdownTimer = null;
+function startCountdowns() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  const tick = () => {
+    [['cdUS', STATUS?.schedule?.us?.next], ['cdTW', STATUS?.schedule?.tw?.next]]
+      .forEach(([id, iso]) => {
+        const node = document.getElementById(id);
+        if (!node) return;
+        if (!iso) { node.textContent = '—'; return; }
+        let left = Math.floor((new Date(iso) - Date.now()) / 1000);
+        if (left <= 0) { node.textContent = '已到期，等待資料'; return; }
+        const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60);
+        const s = left % 60;
+        const p = (n) => String(n).padStart(2, '0');
+        node.textContent = `${p(h)}:${p(m)}:${p(s)}`;
+      });
+  };
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+function heroHTML(latest) {
+  const r = latest.regime;
+  const st = latest.marketState || r;
+  const color = TONE[st.tone] || C.score;
+  const regimeColor = TONE[r.tone] || C.score;
+  const delta = latest.prevTotalScore == null ? null
+    : latest.totalScore - latest.prevTotalScore;
+  return `
+  <div class="card">
+    <div class="thermo-row">
+      <div class="thermo">${thermoSVG(latest.totalScore, color)}</div>
+      <div class="score-box">
+        <div class="score-label">Composite Score</div>
+        <div class="score-num" style="color:${color}">${num(latest.totalScore, 1)}</div>
+        <div class="score-regime" style="color:${color}"
+          title="市場狀態：形容目前市場是什麼樣子（依綜合分數分段）。
+這和右邊的扣款倍率是兩套獨立命名——一個講現象，一個講對策。">${esc(st.label)}</div>
+        <div class="score-delta">${deltaHTML(delta, 1)}</div>
+        <div class="score-delta" style="color:${regimeColor}"
+          title="扣款倍率分段：形容你今天該扣多少錢。">對策：${esc(r.label)} · 扣 ${esc(r.dca_label)}</div>
+      </div>
+      <div class="advice">
+        <div class="advice-top"><span>🎯 今日建議</span><span>${REGIME_ICON[r.key] || ''} 長投</span></div>
+        <h3 style="color:${regimeColor}">${esc(r.label)}</h3>
+        <div class="dca">定期定額<b>${esc(r.dca_label)}</b></div>
+        <p>${esc(regimeText(r.key))}</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function regimeText(key) {
+  return {
+    overheat: '市場情緒極度樂觀，位階與溢價偏高。此時不宜盲目追高，維持紀律基本扣款即可，暫緩任何額外資金的加碼。',
+    standard: '大盤處於健康的長期上升軌道。不預測經濟頂底，依照原訂理財計畫，維持標準扣款金額穩健累積 0050 股數。',
+    dip: '市場出現健康回檔，整體本益比修正。中長線投資價值浮現，建議啟動微幅加碼機制，提升每月的扣款金額以吸收便宜籌碼。',
+    panic: '市場陷入極度恐慌，散戶多單停損、VIX 飆高。此時是長線投資人的「黃金坑」，請勇敢克服心魔，動用備用金強力加碼。',
+  }[key] || '資料不足，暫不判定。';
+}
+
+function regimesHTML(latest) {
+  const cards = latest.regimes
+    .slice().sort((a, b) => b.min - a.min)
+    .map((band) => {
+      const on = band.key === latest.regime.key;
+      const color = TONE[band.tone] || C.score;
+      return `<div class="regime ${on ? 'on' : ''}" style="color:${color}">
+        <div class="rt"><span class="dot"></span>
+          <span style="color:${on ? color : C.ink}">${esc(band.label)}</span>
+          <span style="color:${C.ink3};font-size:10.5px;font-weight:500">（定時定額：${esc(band.dca_label)}）</span>
+          <span class="rm">≥ ${band.min}</span></div>
+        <p>${esc(regimeText(band.key))}</p>
+      </div>`;
+    }).join('');
+  return `<div class="card">
+    <h2>市場狀態判定 <span class="hint">🌱 0050 長投模式</span></h2>
+    <div class="regime-grid">${cards}</div>
+  </div>`;
+}
+
+const IND_META = {
+  vix: { name: 'VIX', desc: '美股恐慌指數', digits: 2, unit: '',
+    note: (i) => `≤${i.best} 安全（100 分），≥${i.worst} 極度恐慌（0 分），中間線性插值。` },
+  vvix: { name: 'VVIX', desc: '恐慌的加速度', digits: 2, unit: '',
+    note: (i) => `≤${i.best} 安全（100 分），≥${i.worst} 加速恐慌（0 分）。與 VIX 高相關，作次要訊號。` },
+  pcr: { name: 'P/C Ratio', desc: '台指期 Put/Call 未平倉量比', digits: 2, unit: '%',
+    note: (i) => `≥${i.best}% 莊家偏多防守（100 分），≤${i.worst}% 莊家棄守（0 分）。為法人 OI 觀點，逆向解讀（PCR 高＝看多）。` },
+  adl: { name: 'ADL', desc: '騰落指標 10MA 斜率', digits: 0, unit: '',
+    note: () => '多頭擴散 100、中性 50、空頭破底 0。斜率以歷史標準差標準化，判斷大盤是否與廣度背離。' },
+};
+
+function indicatorHTML(latest) {
+  const says = (latest.commentary && latest.commentary.deltas) || {};
+  const cards = ['vix', 'vvix', 'pcr', 'adl'].map((key) => {
+    const ind = latest.indicators[key];
+    const meta = IND_META[key];
+    const say = says[key];
+    const score = ind.score;
+    const barColor = score == null ? C.ink3
+      : score >= 60 ? C.score : score >= 40 ? C.warning : C.critical;
+    const valueHTML = key === 'adl'
+      ? `<div class="val text" style="color:${barColor}">${esc(ind.label)}</div>
+         <div class="delta" style="margin-top:6px">當前累計值：${int(ind.value)}</div>
+         <div class="delta">${deltaHTML(ind.delta, 0)}</div>`
+      : `<div class="val">${num(ind.value, meta.digits)}${meta.unit ? `<small>${meta.unit}</small>` : ''}</div>
+         <div class="delta">${deltaHTML(ind.delta, meta.digits)}</div>`;
+    return `<div class="card ind">
+      <div class="ih"><span class="name">${meta.name}</span>
+        <span class="w">權重 ${Math.round(ind.weight * 100)}%</span></div>
+      <div class="desc">${meta.desc}</div>
+      ${valueHTML}
+      <div class="barrow"><span>子分數</span><b>${score == null ? '—' : Math.round(score)}/100</b></div>
+      <div class="bar"><span style="width:${score == null ? 0 : score}%;background:${barColor}"></span></div>
+      ${say ? `<div class="say" style="border-color:${barColor}">${esc(say)}</div>` : ''}
+      <div class="note">${esc(meta.note(ind))}</div>
+    </div>`;
+  }).join('');
+  return `<div class="grid g-4">${cards}</div>`;
+}
+
+function marginHTML(latest) {
+  const mg = latest.margin;
+  if (!mg || !mg.available) {
+    return `<div class="card"><h2>💳 融資警戒</h2>
+      <p style="color:${C.ink3};font-size:12.5px;margin:0">融資資料累積中，尚無法計算位階與風險層級。</p></div>`;
+  }
+  const wins = Object.keys(mg.windows).map(Number).sort((a, b) => a - b);
+  const notes = latest.commentary || {};
+  const tx = latest.taiex || {};
+  const night = latest.txfNight;
+  const gapCls = { severe: 'crit', warn: 'warn', down: 'down', up: 'up', flat: 'flat' }[tx.level] || 'flat';
+
+  return `<div class="card">
+    <div class="mg-head">
+      <h2 style="margin:0">💳 融資警戒 <span class="hint">市場散戶槓桿水位</span></h2>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span class="mg-meta" title="TWSE 信用交易統計每日盤後公布；融資餘額為 TWSE 自有資料的最新交易日。">融資 ${esc(mg.date)}</span>
+        <span class="mg-meta">位階視窗</span>
+        <div class="range" id="winBtns" role="group" aria-label="位階視窗"
+          title="決定 P% / P25 / P75 與槓桿動能用幾個交易日計算。短視窗反應快但易暴衝、長視窗穩定但反應慢。">
+          ${wins.map((w) => `<button data-win="${w}">${w}d</button>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="taiex-strip">
+      <span title="${esc(tx.tip || '')}">🌅 <b>今日 TAIEX</b></span>
+      <span>昨收 <b>${int(tx.prevClose)}</b></span>
+      <span>今開 <b>${int(tx.open)}</b></span>
+      <span>收盤 <b>${int(tx.close)}</b></span>
+      <span title="${esc(tx.tip || '')}">開盤跳空 <b class="${gapCls}">${
+        tx.gap == null ? '—' : `${tx.gap >= 0 ? '+' : ''}${num(tx.gap, 0)} (${num(tx.gapPct, 2)}%)`}</b></span>
+      <span>盤中累積 <b class="${(tx.intradayPct || 0) >= 0 ? 'up' : 'down'}">${
+        tx.intradayPct == null ? '—' : `${tx.intradayPct >= 0 ? '+' : ''}${num(tx.intradayPct, 2)}%`}</b></span>
+      <span>→ <b class="${gapCls}">${esc(tx.label || '—')}</b></span>
+      ${night ? `<span class="nightgap" title="盤後交易時段(T) 跑的是 T−1 下午 15:00 到 T 清晨 05:00 那一夜，先於同一交易日的一般交易時段。
+所以隔夜跳空 = 夜盤(${esc(night.date)}) 最後成交價 ${int(night.nightLast)} − 日盤(${esc(night.prevDate)}) 最後成交價 ${int(night.prevDayLast)}。
+契約月份 ${esc(night.contractMonth)}。">🌙 台指期夜盤 <b class="${night.gap >= 0 ? 'up' : 'down'}">${
+        night.gap >= 0 ? '+' : ''}${num(night.gap, 0)} (${num(night.gapPct, 2)}%)</b></span>` : ''}
+    </div>
+
+    <div class="mg-grid">
+      <div>
+        <div class="kv">市場融資餘額</div>
+        <div class="big">${int(mg.balance_e)}<small>億 NTD</small></div>
+        <div style="font-size:11.5px;margin-top:4px">
+          <span class="${mg.change_e >= 0 ? 'up' : 'down'}">${mg.change_e >= 0 ? '↑' : '↓'} ${num(Math.abs(mg.change_e), 1)} 億</span>
+          <span style="color:${C.ink3}"> vs 前日 ${int(mg.prev_e)} 億</span>
+        </div>
+        <div class="kv" style="margin-top:14px" id="pctLabel">近 — 日位階</div>
+        <div class="big" style="font-size:26px" id="pctValue"></div>
+      </div>
+      <div>
+        <div class="kv" style="margin-bottom:8px">斷頭風險指標</div>
+        <div id="riskHost"></div>
+      </div>
+      <div>
+        <div class="kv" style="margin-bottom:4px" id="trendLabel">趨勢</div>
+        <svg class="chart" id="marginTrend"></svg>
+      </div>
+    </div>
+    <div id="momentumHost"></div>
+
+    <div class="ai">
+      <div class="who">${notes.source === 'llm' ? '🤖 AI 長投觀察' : '📋 規則式長投觀察'}</div>
+      ${notes.deltas?.longterm ? `<p class="lead">${esc(notes.deltas.longterm)}${
+        notes.deltas.margin ? '　·　' + esc(notes.deltas.margin) : ''}</p>` : ''}
+      <p>${esc(notes.long_term || '')}</p>
+      <div class="who" style="margin-top:12px">${notes.source === 'llm' ? '🤖 AI 短線觀察' : '📋 規則式短線觀察'}</div>
+      <p>${esc(notes.swing || '')}</p>
+      <div class="method" id="methodHost"></div>
+    </div>
+  </div>`;
+}
+
+/* 位階視窗切換：三層檢查、位階、趨勢圖、槓桿動能全部連動 */
+function renderMarginWindow(latest, win) {
+  const mg = latest.margin;
+  const w = mg.windows[String(win)];
+  if (!w) return;
+  const rc = RISK_COLOR[w.risk_tone] || C.ink3;
+
+  $('#pctLabel').textContent = `近 ${w.window} 日位階`;
+  const pv = $('#pctValue');
+  pv.innerHTML = `P${Math.round(w.percentile)}<small>· ${esc(w.percentile_label)}</small>`;
+  pv.setAttribute('title', w.percentile_tip || '');
+
+  $('#riskHost').innerHTML = `
+    <div class="risk-pill" style="color:${rc}" title="${esc(w.risk_tip || '')}">
+      <span>${RISK_ICON[w.risk_tone] || ''}</span>
+      <span>${esc(w.risk_label)}</span>
+      <span style="color:${C.ink2};font-weight:600">(${w.risk_hits}/3)</span>
+    </div>
+    <ul class="checks">${w.triggers.map((c, i) => `<li title="${esc(c.tip || '')}">
+        <span class="ct">${i + 1}.</span><span>${esc(c.name)}</span>
+        <span class="cv">${esc(c.value)}</span>
+        <span class="ct">(${esc(c.threshold)})</span>
+        <span style="color:${c.hit ? C.critical : C.good};font-weight:700">${c.hit ? '✕' : '✓'}</span>
+        ${c.strong ? '<span class="strong-tag" title="已達強訊號門檻">強訊號</span>' : ''}
+      </li>`).join('')}</ul>`;
+
+  $('#trendLabel').textContent = `近 ${w.trend.length} 個交易日趨勢`;
+  if (w.trend.length > 1) {
+    drawMarginTrend($('#marginTrend'), w.trend, w.p75_e, w.p25_e,
+      `P${Math.round(w.percentile)}`, w);
+  } else {
+    $('#marginTrend').textContent = '';
+  }
+
+  const mo = w.momentum;
+  $('#momentumHost').innerHTML = !mo
+    ? `<div class="momentum"><span style="color:${C.ink3}">槓桿動能需要至少 ${w.window} 個交易日的資料，目前累積 ${mg.history_days} 天，先跑一次歷史回補即可。</span></div>`
+    : `<div class="momentum" title="${esc(mo.tip || '')}">
+      <span>📈 <b>槓桿動能</b> · 近 ${mo.window} 日</span>
+      <span>指數 <b class="${mo.taiex_pct >= 0 ? 'up' : 'down'}">${mo.taiex_pct >= 0 ? '+' : ''}${num(mo.taiex_pct, 1)}%</b></span>
+      <span>融資 <b class="${mo.margin_pct >= 0 ? 'up' : 'down'}">${mo.margin_pct >= 0 ? '+' : ''}${num(mo.margin_pct, 1)}%</b></span>
+      <span>散戶超漲 <b>${mo.excess_pp >= 0 ? '+' : ''}${num(mo.excess_pp, 1)} pp</b>
+        <span class="ct">(門檻 ±${num(mo.threshold_pp, 1)}pp)</span></span>
+      ${mo.sync_pct == null ? '' : `<span>同步 <b>${Math.round(mo.sync_pct)}%</b></span>`}
+      <span style="color:${RISK_COLOR[mo.tone] || C.ink2};font-weight:700">→ ${esc(mo.verdict)}</span>
+    </div>`;
+
+  $('#methodHost').innerHTML = `斷頭風險指標 = 三層組合，每層都有統計或金融數學根據
+    （滑到各層上面可以看完整推導）：
+    <b>(1) 槓桿擁擠度</b> 融資餘額位階 ≥ P80；
+    <b>(2) 累積跌壓</b> TAIEX 近 10 日 <b>peak-to-current</b> 跌幅 ≤ −5%
+    （不是「10 日前到今天」，而是最高點跌到現價）；
+    <b>(3) 去化加速</b> 融資近 3 日淨減少 ≥ 總餘額的 1%。
+    觸發層數越多，越接近真實的「斷頭潮」情境（維持率 130% 強制平倉）。
+    位階與動能的樣本數：${w.sample_days} 個交易日。`;
+}
+
+function eventsHTML(latest) {
+  const ev = latest.events;
+  if (!ev || !ev.upcoming?.length) return '';
+  const styles = ev.styles || {};
+  const items = ev.upcoming.map((e) => {
+    const st = styles[e.category] || { label: e.category, color: C.ink2 };
+    return `<li title="${esc(e.note || '')}">
+      <span class="ev-tag" style="color:${st.color};border-color:${st.color}">${esc(st.label)}</span>
+      <span class="ev-name">${esc(e.name)}</span>
+      <span class="ev-when">${esc(fmtWhen(e.at))}</span>
+      <span class="ev-in">${esc(e.in_label)}</span>
+    </li>`;
+  }).join('');
+  return `<div class="card">
+    <h2>🗓 即將發生的總經事件 <span class="hint">影響波動率與籌碼的行程</span></h2>
+    <ul class="events">${items}</ul>
+    <div class="method">
+      FOMC 日期取自 Federal Reserve 官方會議行事曆；CPI 與非農就業取自 BLS 官方發布排程
+      （非農<b>不是</b>固定每月第一個週五，所以照官方表而非推導）；
+      台指期結算日依契約規則推導為每月第三個週三。時間全部換算成台北時間。
+      排程表每年更新，過期後需要補表——不會憑空生成日期。
+    </div>
+  </div>`;
+}
+
+function chartsHTML() {
+  return `<div class="card">
+    <div class="mg-head">
+      <h2 style="margin:0">綜合分數走勢 vs 0050 價格</h2>
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="range" id="rangeBtns" role="group" aria-label="時間範圍">
+          <button data-days="30">近 30 日</button>
+          <button data-days="90">近 90 日</button>
+          <button data-days="180">近 180 日</button>
+          <button data-days="0">全部</button>
+        </div>
+        <span class="mg-meta" id="rangeInfo"></span>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chartWrap">
+      <div class="legend"><span><i style="background:${C.score}"></i>綜合分數（0–100）</span></div>
+      <svg class="chart" id="scoreChart"></svg>
+      <div class="legend" style="margin-top:12px"><span><i style="background:${C.price}"></i>0050 收盤價（NTD）</span></div>
+      <svg class="chart" id="priceChart"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="method" style="margin-top:10px">
+      上方分數圖的色塊為市場狀態區間（綠：標準累積以上；黃：相對低檔；紅：恐慌超跌）。
+      滑鼠移到任一張圖上，兩張圖的游標與當日數值會同步顯示。
+    </div>
+    <details class="table-view">
+      <summary>顯示資料表（供螢幕閱讀器與核對數字用）</summary>
+      <div class="tbl-scroll" id="tableHost"></div>
+    </details>
+  </div>`;
+}
+
+/* ─────────────────────────── 主流程 ─────────────────────────── */
+
+let SCORES = [];
+let charts = { score: null, price: null };
+let visible = [];
+let EVENT_MARKERS = [];
+let EVENT_STYLES = {};
+
+function renderCharts(days) {
+  visible = days > 0 ? SCORES.slice(-days) : SCORES.slice();
+  const missing = visible.filter((r) => r.etf_close == null).length;
+  $('#rangeInfo').textContent =
+    `${visible.length} 筆${missing ? `（0050 缺 ${missing} 筆）` : ''}`;
+
+  /* 窄螢幕把圖畫高一點，否則 1000×200 的 viewBox 在手機上會壓成一條線 */
+  const narrow = innerWidth < 760;
+  charts.score = drawLine($('#scoreChart'), {
+    data: visible, accessor: (r) => r.total, color: C.score, narrow,
+    label: '綜合分數走勢（0–100）', domain: [0, 100], ticks: 4, decimals: 1, unit: ' 分',
+    width: narrow ? 520 : 1000, height: narrow ? 400 : 200,
+    events: EVENT_MARKERS, eventStyles: EVENT_STYLES, eventLabels: !narrow,
+    bands: [
+      { from: 60, to: 100, color: C.score },
+      { from: 40, to: 60, color: C.warning },
+      { from: 0, to: 40, color: C.critical },
+    ],
+  });
+  charts.price = drawLine($('#priceChart'), {
+    data: visible, accessor: (r) => r.etf_close, color: C.price, narrow,
+    label: '0050 收盤價', ticks: 3, decimals: 2, unit: ' 元',
+    width: narrow ? 520 : 1000, height: narrow ? 330 : 170,
+    events: EVENT_MARKERS, eventStyles: EVENT_STYLES,
+    tickFormat: (v) => v.toFixed(0),
+  });
+
+  const rows = visible.slice().reverse().map((r) => `<tr>
+      <td>${esc(r.date)}</td><td>${num(r.total, 1)}</td>
+      <td>${num(r.sub.vix, 0)}</td><td>${num(r.sub.vvix, 0)}</td>
+      <td>${num(r.sub.pcr, 0)}</td><td>${num(r.sub.adl, 0)}</td>
+      <td>${num(r.etf_close, 2)}</td><td>${int(r.taiex_close)}</td></tr>`).join('');
+  $('#tableHost').innerHTML = `<table><thead><tr>
+      <th>日期</th><th>綜合</th><th>VIX</th><th>VVIX</th><th>P/C</th><th>ADL</th>
+      <th>0050</th><th>TAIEX</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function bindCrosshair() {
+  const wrap = $('#chartWrap');
+  const tip = $('#tip');
+  const svgs = [$('#scoreChart'), $('#priceChart')];
+
+  function move(ev) {
+    const point = ev.touches ? ev.touches[0] : ev;
+    const target = ev.currentTarget;
+    const box = target.getBoundingClientRect();
+    const c = target.id === 'scoreChart' ? charts.score : charts.price;
+    if (!c || !visible.length) return;
+    const rel = (point.clientX - box.left) / box.width * c.W;
+    const span = c.W - c.M.l - c.M.r;
+    let i = Math.round((rel - c.M.l) / span * (visible.length - 1));
+    i = Math.max(0, Math.min(visible.length - 1, i));
+
+    const row = visible[i];
+    charts.score && charts.score.highlight(i);
+    charts.price && charts.price.highlight(i);
+    tip.innerHTML = `<b>${esc(row.date)}</b><br>
+      <span class="r">綜合分數</span> <b>${num(row.total, 1)}</b><br>
+      <span class="r">0050</span> <b>${num(row.etf_close, 2)}</b><br>
+      <span class="r">TAIEX</span> <b>${int(row.taiex_close)}</b>`;
+    tip.style.opacity = 1;
+    const wrapBox = wrap.getBoundingClientRect();
+    let left = point.clientX - wrapBox.left + 14;
+    if (left + 150 > wrapBox.width) left = point.clientX - wrapBox.left - 160;
+    tip.style.left = Math.max(0, left) + 'px';
+    tip.style.top = (point.clientY - wrapBox.top + 12) + 'px';
+  }
+  function leave() {
+    charts.score && charts.score.clear();
+    charts.price && charts.price.clear();
+    tip.style.opacity = 0;
+  }
+  svgs.forEach((svg) => {
+    svg.addEventListener('mousemove', move);
+    svg.addEventListener('touchmove', move, { passive: true });
+    svg.addEventListener('mouseleave', leave);
+    svg.addEventListener('touchend', leave);
+  });
+}
+
+async function boot() {
+  const bust = `?t=${Date.now()}`;
+  let latest, history, status;
+  try {
+    if (window.__EMBED__) {
+      /* 單檔預覽版：資料已經內嵌在頁面裡，不需要讀外部檔案 */
+      ({ latest, history, status } = window.__EMBED__);
+    } else {
+      [latest, history, status] = await Promise.all([
+        fetch('data/latest.json' + bust).then((r) => r.json()),
+        fetch('data/history.json' + bust).then((r) => r.json()),
+        fetch('data/status.json' + bust).then((r) => r.json()).catch(() => null),
+      ]);
+    }
+  } catch (err) {
+    $('#app').innerHTML = `<div class="err">讀不到資料檔（data/latest.json）。
+      如果是剛部署，請確認 GitHub Actions 已經跑過一次並產生 docs/data/ 底下的檔案。
+      <br>錯誤訊息：${esc(err.message)}</div>`;
+    return;
+  }
+
+  renderStatus(status, latest);
+  $('#app').innerHTML = `
+    <section class="grid g-hero">${heroHTML(latest)}${regimesHTML(latest)}</section>
+    <section>${indicatorHTML(latest)}</section>
+    <section>${marginHTML(latest)}</section>
+    <section>${eventsHTML(latest)}</section>
+    <section>${chartsHTML()}</section>`;
+
+  /* 融資警戒的位階視窗切換 */
+  const mg = latest.margin;
+  if (mg && mg.available) {
+    const winBtns = [...$('#winBtns').querySelectorAll('button')];
+    const pickWin = (btn) => {
+      winBtns.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      renderMarginWindow(latest, Number(btn.dataset.win));
+    };
+    winBtns.forEach((b) => b.addEventListener('click', () => pickWin(b)));
+    pickWin(winBtns.find((b) => Number(b.dataset.win) === mg.defaultWindow)
+      || winBtns[winBtns.length - 1]);
+  }
+
+  if (latest.eventsOnChart !== false) {
+    EVENT_MARKERS = latest.events?.markers || [];
+    EVENT_STYLES = latest.events?.styles || {};
+  }
+  SCORES = history.scores || [];
+  const btns = [...$('#rangeBtns').querySelectorAll('button')];
+  const pick = (btn) => {
+    btns.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+    renderCharts(Number(btn.dataset.days));
+  };
+  btns.forEach((b) => b.addEventListener('click', () => pick(b)));
+  pick(btns.find((b) => Number(b.dataset.days) === 90) || btns[0]);
+  bindCrosshair();
+
+  let resizeTimer;
+  addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const on = btns.find((b) => b.getAttribute('aria-pressed') === 'true');
+      renderCharts(Number(on ? on.dataset.days : 90));
+    }, 160);
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

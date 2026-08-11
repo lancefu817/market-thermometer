@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────
+#  市場溫度計　參數設定
+#  改這個檔就能調整權重與門檻，不用動任何程式碼。
+#  改完 commit 上去，下一次排程就會用新的參數重算。
+# ─────────────────────────────────────────────────────────────
+
+# 四個指標的權重（總和必須是 1.0）
+weights:
+  vix:  0.45   # 美股恐慌指數
+  adl:  0.30   # 台股騰落指標（市場廣度）
+  vvix: 0.15   # 恐慌的加速度
+  pcr:  0.10   # 台指選擇權 Put/Call 未平倉量比
+
+# 各指標的「滿分 / 零分」門檻，中間線性插值
+thresholds:
+  vix:
+    best: 13     # ≤13 → 100 分（安全）
+    worst: 30    # ≥30 → 0 分（極度恐慌）
+  vvix:
+    best: 85     # ≤85 → 100 分
+    worst: 125   # ≥125 → 0 分（波動率加速）
+  pcr:
+    best: 130    # ≥130% → 100 分（莊家偏多防守）
+    worst: 80    # ≤80%  → 0 分（莊家棄守）；逆向解讀：PCR 高 = 看多
+  adl:
+    window: 23        # 累計騰落線的滾動視窗（交易日）
+    ma: 10            # 取幾日均線
+    slope_days: 5     # 斜率取樣天數
+    sensitivity: 1.0  # 斜率→分數的靈敏度；調大則分數擺盪更劇烈
+
+# ── 兩套獨立的分數命名，刻意分開（原站也是這樣）──
+#  market_states：形容「市場現在是什麼樣子」，顯示在溫度計下方。
+#  regimes：形容「你今天該扣多少錢」，顯示在今日建議與狀態判定卡。
+#  同一個分數可以同時是「強勢多頭」又是「高檔過熱」——前者講現象，後者講對策。
+market_states:
+  - {min: 80, key: strong-bull, label: "強勢多頭", tone: bullish}
+  - {min: 60, key: mild-bull,   label: "中性偏多", tone: bullish}
+  - {min: 40, key: neutral,     label: "中性盤整", tone: neutral}
+  - {min: 0,  key: high-vol,    label: "高波動",   tone: panic}
+
+# 綜合分數 → 扣款倍率
+regimes:
+  - {min: 80, key: overheat, label: "高檔過熱",  tone: overheat, dca: 80,  dca_label: "80%"}
+  - {min: 60, key: standard, label: "標準累積",  tone: bullish,  dca: 100, dca_label: "100%"}
+  - {min: 40, key: dip,      label: "相對低檔",  tone: neutral,  dca: 120, dca_label: "120%"}
+  - {min: 0,  key: panic,    label: "恐慌超跌！", tone: panic,    dca: 175, dca_label: "150%~200%"}
+
+# 融資警戒（散戶槓桿水位）
+margin:
+  # 位階視窗：網頁上可以切換，四個都會預先算好。
+  # 位階、P25/P75、趨勢小圖、槓桿動能都跟著這個視窗連動。
+  windows: [30, 60, 90, 180]
+  default_window: 90
+  triggers:
+    # 第 1 層 槓桿擁擠度
+    crowding_pct: 80          # ≥P80：歷史前 20% 高位
+    crowding_strong_pct: 90   # ≥P90：強訊號，歷史前 10% 極端高位
+    # 第 2 層 累積跌壓（注意：peak-to-current，近 N 日最高點跌到現價）
+    drawdown_days: 10
+    drawdown_pct: -5.0        # 對應維持率 137% 的脆弱帳戶被打到 130% 斷頭線
+    drawdown_strong_pct: -10.0
+    # 第 3 層 去化加速（門檻是「總餘額的百分比」，會隨市場規模自動 scale）
+    deleverage_days: 3
+    deleverage_pct: -1.0
+    deleverage_strong_pct: -3.0
+  # 開盤跳空預警（券商在開盤瞬間就是用這個算追繳）
+  gap_warn_pct: -2.0          # R=133% 最脆弱 1% 帳戶觸及斷頭線
+  gap_severe_pct: -4.0        # R=137% 脆弱 5% 帳戶觸及斷頭線
+  # 槓桿動能的解讀門檻（以 90 日為基準，其他視窗按比例 scale）
+  momentum_base_window: 90
+  momentum_excess_pp: 5.0     # 散戶超漲超過幾個百分點算「加槓桿追多」
+
+# 排程時間（要與 .github/workflows/update.yml 的 cron 一致，只用於顯示倒數）
+schedule:
+  tw_time_tpe: "22:00"    # 台股：收盤後
+  us_time_tpe: "06:00"    # 美股：隔日清晨（美股收盤後）
+  grace_minutes: 90       # 超過預期時間這麼久還沒新資料，就標「今日尚未更新」
+
+# 總經事件行事曆
+events:
+  upcoming_count: 6       # 畫面上「即將發生」列幾筆
+  show_on_chart: true     # 走勢圖上是否畫事件標記線
+
+# 每日 AI 文字評論
+commentary:
+  # gemini（有免費額度）/ anthropic / openai / none
+  provider: gemini
+  # 免費額度目前涵蓋 Flash 系列；若某個型號名稱失效，換成 AI Studio 上看到的即可
+  gemini_model: gemini-2.5-flash
+  anthropic_model: claude-haiku-4-5
+  openai_model: gpt-5.6-luna
+  # 抓不到 key 或呼叫失敗時，自動改用內建的規則式文字（不會讓網頁開天窗）
+  fallback_to_rules: true
