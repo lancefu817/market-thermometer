@@ -1,0 +1,60 @@
+name: 更新市場溫度計資料
+
+# cron 一律是 UTC 時間。台北 = UTC+8。
+#   14:00 UTC = 台北 22:00 → 台股收盤後（漲跌家數＋融資餘額都已公布）
+#   22:00 UTC = 台北隔日 06:00 → 美股收盤後（VIX / VVIX 日 K 已定案，夏令冬令都覆蓋）
+on:
+  schedule:
+    - cron: "0 14 * * 1-5"
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "歷史回補天數（第一次部署填 240，平常留空）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-thermometer-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝相依套件
+        run: pip install -r requirements.txt
+
+      - name: 抓資料並重算分數
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "${{ github.event.inputs.backfill }}" ]; then
+            python -m pipeline.build --backfill "${{ github.event.inputs.backfill }}"
+          else
+            python -m pipeline.build
+          fi
+
+      - name: 有變動就 commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data
+          if git diff --staged --quiet; then
+            echo "資料沒有變化，跳過 commit"
+          else
+            git commit -m "資料更新 $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')"
+            git push
+          fi
