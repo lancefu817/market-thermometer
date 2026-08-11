@@ -1,13 +1,13 @@
 {
- "generatedAt": "2026-08-11T22:55:12+08:00",
+ "generatedAt": "2026-08-12T06:51:16+08:00",
  "version": "1.0.0",
  "timezone": "Asia/Taipei (UTC+8)",
- "runUrl": "https://github.com/lancefu817/market-thermometer/actions/runs/31504174992",
+ "runUrl": "https://github.com/lancefu817/market-thermometer/actions/runs/31544121890",
  "schedule": {
   "graceMinutes": 90,
   "us": {
    "timeTpe": "06:00",
-   "next": "2026-08-12T06:00+08:00"
+   "next": "2026-08-13T06:00+08:00"
   },
   "tw": {
    "timeTpe": "22:00",
@@ -24,7 +24,7 @@
  },
  "us": {
   "date": "2026-08-11",
-  "expected": "2026-08-10",
+  "expected": "2026-08-11",
   "fresh": true
  },
  "tw": {
