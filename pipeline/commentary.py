@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -35,24 +36,96 @@ def _post_json(url: str, payload: dict, headers: dict) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _get_json(url: str, headers: dict) -> dict:
+    req = urllib.request.Request(url, method="GET")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 # ─────────────────────────── 各家 API ───────────────────────────
 
 
-def _gemini(prompt: str, model: str, key: str) -> str:
-    # 金鑰走 x-goog-api-key 標頭，不放在網址的 query string 裡：
-    # Google AI Studio 現在發的是 auth key，官方範例也是用標頭帶。
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent"
-    )
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def _gemini_models(key: str) -> list[str]:
+    """問 Google 現在有哪些模型可用（回傳 'models/xxx' 形式）。
+
+    不要把型號寫死：Google 會下架與改名，寫死的結果就是某天 404，
+    而且 404 看起來像金鑰壞了，很難查。
+    """
+    out = _get_json(f"{GEMINI_BASE}/models", {"x-goog-api-key": key})
+    names = []
+    for m in out.get("models") or []:
+        methods = m.get("supportedGenerationMethods") or []
+        if "generateContent" in methods and m.get("name"):
+            names.append(m["name"])
+    return names
+
+
+def _gemini_rank(name: str) -> tuple:
+    """挑模型的偏好順序：先 flash（免費層涵蓋、夠快夠便宜），再 flash-lite，最後其他。
+
+    同一家族取版本號較新的；帶 preview / exp / thinking 字樣的往後排，
+    因為那些型號的存活期與行為都比較不穩定。
+    """
+    short = name.rsplit("/", 1)[-1]
+    if "flash" in short and "lite" not in short:
+        family = 0
+    elif "lite" in short:
+        family = 1
+    else:
+        family = 2
+    unstable = 1 if any(k in short for k in ("preview", "exp", "thinking")) else 0
+    m = re.search(r"(\d+)\.(\d+)", short)
+    major, minor = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    return (family, unstable, -major, -minor, len(short))
+
+
+def _gemini_call(prompt: str, resource: str, key: str) -> str:
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
     }
-    out = _post_json(url, payload, {"x-goog-api-key": key})
+    # 金鑰走 x-goog-api-key 標頭，不放在網址的 query string 裡：
+    # Google AI Studio 現在發的是 auth key，官方範例也是用標頭帶。
+    out = _post_json(
+        f"{GEMINI_BASE}/{resource}:generateContent", payload, {"x-goog-api-key": key}
+    )
     parts = out["candidates"][0]["content"]["parts"]
     return "".join(p.get("text", "") for p in parts).strip()
+
+
+def _gemini(prompt: str, model: str, key: str) -> str:
+    """一律先查你的帳號實際有哪些模型，再挑一個用。
+
+    config.yaml 的 gemini_model 只當「偏好」：清單裡有就優先用它，
+    沒有就自動挑最合適的。這樣 Google 改名或下架型號都不會讓儀表板壞掉，
+    也不會每次都先浪費一個註定 404 的請求。
+    """
+    available = _gemini_models(key)
+    if not available:
+        raise ValueError("這支金鑰底下沒有任何支援 generateContent 的模型")
+
+    wanted = (model or "").strip().rsplit("/", 1)[-1].lower()
+    pick = None
+    if wanted and wanted != "auto":
+        for name in available:
+            if name.rsplit("/", 1)[-1].lower() == wanted:
+                pick = name
+                break
+    if pick is None:
+        pick = sorted(available, key=_gemini_rank)[0]
+        if wanted and wanted != "auto":
+            print(f"  · Gemini 沒有 {wanted} 這個型號，自動改用 {pick}")
+        else:
+            print(f"  · Gemini 自動挑選型號：{pick}")
+    print(f"  · Gemini 帳號可用型號 {len(available)} 個，本次使用 {pick}")
+    _gemini.last_model = pick
+    return _gemini_call(prompt, pick, key)
 
 
 def _anthropic(prompt: str, model: str, key: str) -> str:
@@ -271,11 +344,12 @@ def generate(ctx: dict, cfg: dict) -> dict:
                         key: (str(raw_deltas.get(key) or "").strip() or fallback[key])
                         for key in fallback
                     }
+                    used = getattr(fn, "last_model", None) or model
                     return {
                         "long_term": long_text,
                         "swing": swing,
                         "deltas": deltas,
-                        "model": f"{provider}:{model}",
+                        "model": f"{provider}:{used}",
                         "source": "llm",
                     }
             except (urllib.error.URLError, KeyError, ValueError, IndexError) as exc:
