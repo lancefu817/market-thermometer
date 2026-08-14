@@ -1,8 +1,8 @@
 {
- "generatedAt": "2026-08-14T06:50:22+08:00",
+ "generatedAt": "2026-08-14T22:49:07+08:00",
  "version": "1.0.0",
  "timezone": "Asia/Taipei (UTC+8)",
- "runUrl": "https://github.com/lancefu817/market-thermometer/actions/runs/31751544860",
+ "runUrl": "https://github.com/lancefu817/market-thermometer/actions/runs/31811376201",
  "schedule": {
   "graceMinutes": 90,
   "us": {
@@ -11,30 +11,30 @@
   },
   "tw": {
    "timeTpe": "22:00",
-   "next": "2026-08-14T22:00+08:00"
+   "next": "2026-08-17T22:00+08:00"
   }
  },
  "sources": {
   "yahoo": "ok",
   "taifex": "ok",
-  "twse_breadth": "no-new",
-  "twse_margin": "no-new",
+  "twse_breadth": "ok",
+  "twse_margin": "ok",
   "txf_night": "ok",
   "mode": "daily"
  },
  "us": {
-  "date": "2026-08-13",
+  "date": "2026-08-14",
   "expected": "2026-08-13",
   "fresh": true
  },
  "tw": {
-  "date": "2026-08-13",
-  "expected": "2026-08-13",
+  "date": "2026-08-14",
+  "expected": "2026-08-14",
   "fresh": true
  },
  "counts": {
-  "scored_days": 246,
-  "raw_days": 259
+  "scored_days": 247,
+  "raw_days": 260
  },
  "commentary": {
   "source": "rules",
